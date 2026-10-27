@@ -1,0 +1,12 @@
+{
+  "display_name": "酒馆阅读助手",
+  "loading_order": 999,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "author": "Mimo",
+  "version": "15.0.0",
+  "homePage": "https://docs.sillytavern.app/for-contributors/writing-extensions/",
+  "auto_update": false
+}
