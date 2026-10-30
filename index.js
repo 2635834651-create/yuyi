@@ -1,4 +1,4 @@
-// 酒馆阅读助手 v15.4 - 自然段点击定位与正文过滤
+// 酒馆阅读助手 v15.5 - 全角空格自然段与稳定高亮
 // 作为 SillyTavern/TauriTavern UI 扩展运行，不是酒馆助手隔离全局脚本。
 (() => {
   'use strict';
@@ -8,7 +8,7 @@
   if (window.__mimoReaderV15?.destroy) window.__mimoReaderV15.destroy();
 
   const defaults = { speed: 1, pitch: 1, volume: 1, subtitles: true, highlight: true,
-    autoScroll: true, bubbleX: null, bubbleY: '22%', subtitleX: null, subtitleY: '78%' };
+    autoScroll: false, bubbleX: null, bubbleY: '22%', subtitleX: null, subtitleY: '78%' };
   let settings;
   try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
   catch { settings = { ...defaults }; }
@@ -56,7 +56,7 @@
     const root=document.createElement('div');root.id=ID;
     root.innerHTML=`<button class="bubble" aria-label="打开阅读助手">${icon('headphones')}</button>
     <section class="panel glass" aria-label="阅读助手控制面板">
-      <div class="top"><div class="brand"><div class="logo">${icon('headphones')}</div><div><div class="title">阅读助手</div><div class="muted">IMMERSIVE READER · V15.4</div></div></div><button class="iconbtn close" aria-label="关闭">${icon('close')}</button></div>
+      <div class="top"><div class="brand"><div class="logo">${icon('headphones')}</div><div><div class="title">阅读助手</div><div class="muted">IMMERSIVE READER · V15.5</div></div></div><button class="iconbtn close" aria-label="关闭">${icon('close')}</button></div>
       <div class="now"><div class="nowlabel">正在朗读</div><div class="nowtext">点击播放，开始阅读当前 AI 回复。</div></div>
       <div class="controls"><button class="control prev" title="上一句">${icon('prev')}</button><button class="control primary play" title="播放">${icon('play')}</button><button class="control next" title="下一句">${icon('next')}</button><button class="control stop" title="停止">${icon('stop')}</button></div>
       <div class="progress"><div class="track"><div class="fill"></div></div><div class="progressText"><span class="count">未开始</span><span class="speedLabel">语速 1.0×</span></div></div>
@@ -137,25 +137,36 @@
   }
   function paragraphAt(flat, clickNode, clickOffset){
     let clicked=-1;
-    for(let i=0;i<flat.map.length;i++){const m=flat.map[i];if(m&&m.node===clickNode&&clickOffset>=m.offset&&clickOffset<=m.offset+1){clicked=i;break}}
+    for(let i=0;i<flat.map.length;i++){
+      const m=flat.map[i];
+      if(m&&m.node===clickNode&&clickOffset>=m.offset&&clickOffset<=m.offset+1){clicked=i;break}
+    }
     if(clicked<0)return null;
     const text=flat.text;
-    // Paragraph boundaries: rendered block/BR line breaks, or the traditional two-space first-line indent.
-    const bounds=[0];
+    // 段落边界：换行，或段首单个全角空格（　）。
+    const starts=[0];
     for(let i=0;i<text.length;i++){
-      if(text[i]==='\n')bounds.push(i+1);
-      else if(i>0&&(text[i]==='　'&&text[i-1]==='　'||text[i]===' '&&text[i-1]===' '))bounds.push(i-1);
+      if(text[i]==='\n' && i+1<text.length) starts.push(i+1);
+      else if(text[i]==='　' && (i===0 || text[i-1]==='\n' || text[i-1]==='　')) starts.push(i);
     }
-    bounds.push(text.length);
+    starts.sort((a,b)=>a-b);
+    const unique=starts.filter((v,i)=>i===0||v!==starts[i-1]);
     let a=0,b=text.length;
-    for(let i=0;i<bounds.length-1;i++){const x=bounds[i],y=bounds[i+1];if(clicked>=x&&clicked<y){a=x;b=y;break}}
-    while(a<b&&/[\\s　]/.test(text[a]))a++;
-    while(b>a&&/[\\s　]/.test(text[b-1]))b--;
+    for(let i=0;i<unique.length;i++){
+      const x=unique[i],y=unique[i+1]??text.length;
+      if(clicked>=x&&clicked<y){a=x;b=y;break}
+    }
+    // 高亮和朗读正文不包含段首缩进空格。
+    while(a<b && /[\s　]/.test(text[a])) a++;
+    while(b>a && /[\s　]/.test(text[b-1])) b--;
     if(a>=b)return null;
-    const range=document.createRange();
     let first=null,last=null;
-    for(let i=a;i<b;i++){const m=flat.map[i];if(!m)continue;if(!first)first=m;last=m}
+    for(let i=a;i<b;i++){
+      const m=flat.map[i];if(!m)continue;
+      if(!first)first=m;last=m;
+    }
     if(!first||!last)return null;
+    const range=document.createRange();
     try{range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1)}catch{return null}
     return {text:text.slice(a,b).replace(/\n/g,' ').replace(/[　 ]{2,}/g,' ').trim(),range};
   }
@@ -180,7 +191,7 @@
   }
   function playPause(){if(!synth||!Utterance)return status('当前环境不支持浏览器语音合成');if(state.playing&&!state.paused)return pause();if(state.paused)return resume();state.queue=buildQueue();state.index=topIndex(state.queue);if(!state.queue.length)return status('没有找到可朗读的 AI 正文');state.playing=true;state.paused=false;state.generation++;speak(state.generation);buttonState();}
   function speak(gen){if(state.destroyed||gen!==state.generation||!state.playing||state.paused)return;if(state.index>=state.queue.length){stop();status('本轮内容已读完');return;}const it=state.queue[state.index];if(!it?.text){state.index++;return speak(gen)}try{synth.cancel();const u=new Utterance(it.text);u.lang='zh-CN';u.rate=+settings.speed||1;u.pitch=+settings.pitch||1;u.volume=+settings.volume||1;state.utterance=u;state.activeMessage=it.message;
-    u.onstart=()=>{if(gen!==state.generation)return;status('正在朗读');render();highlight();if(settings.autoScroll)scrollMsg(it.message)};
+    u.onstart=()=>{if(gen!==state.generation)return;status('正在朗读');render();highlight()};
     u.onend=()=>{if(gen!==state.generation||state.paused)return;state.index++;render();speak(gen)};
     u.onerror=e=>{if(gen!==state.generation||['canceled','interrupted'].includes(e.error))return;status('语音异常：'+(e.error||'unknown'));state.index++;if(state.index<state.queue.length)speak(gen)};
     u.onboundary=e=>{if(gen===state.generation&&typeof e.charIndex==='number')render(e.charIndex)};
@@ -193,31 +204,43 @@
   function buttonState(){const u=state.ui;if(!u.play)return;u.play.innerHTML=state.playing&&!state.paused?icon('pause'):icon('play');u.bubble.classList.toggle('active',state.playing&&!state.paused);}
   function render(){const u=state.ui;if(!u.root)return;const it=state.queue[state.index],t=it?.text||'点击播放，开始阅读当前 AI 回复。';u.now.textContent=t;u.captionText.textContent=t;u.caption.hidden=!settings.subtitles;if(state.queue.length){u.count.textContent=`${Math.min(state.index+1,state.queue.length)} / ${state.queue.length}`;u.fill.style.width=((state.index+1)/state.queue.length*100)+'%'}else{u.count.textContent='未开始';u.fill.style.width='0%'}}
   function scrollMsg(msg){if(!msg?.isConnected)return;try{msg.scrollIntoView({behavior:'smooth',block:'center'})}catch{}}
-  const HNAME='mimoReaderV15';let mark=null;
-  function clearHighlight(){try{window.CSS?.highlights?.delete(HNAME)}catch{}if(mark?.parentNode){const p=mark.parentNode;p.replaceChild(document.createTextNode(mark.textContent||''),mark);p.normalize()}mark=null;}
+  const HNAME='mimoReaderV15';let mark=null,highlightLayer=null;
+  function clearVisualRects(){highlightLayer?.remove();highlightLayer=null;}
+  function drawVisualRects(range){
+    clearVisualRects();const rects=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0);if(!rects.length)return;
+    highlightLayer=document.createElement('div');highlightLayer.id=ID+'-highlight-layer';
+    Object.assign(highlightLayer.style,{position:'fixed',inset:'0',zIndex:'2147482997',pointerEvents:'none'});
+    for(const r of rects){const box=document.createElement('div');Object.assign(box.style,{position:'fixed',left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px',background:'rgba(255,190,75,.34)',borderRadius:'3px',boxShadow:'inset 0 -2px 0 rgba(255,190,75,.95)'});highlightLayer.appendChild(box)}
+    document.body.appendChild(highlightLayer);
+  }
+  function clearHighlight(){try{window.CSS?.highlights?.delete(HNAME)}catch{}clearVisualRects();if(mark?.parentNode){const p=mark.parentNode;p.replaceChild(document.createTextNode(mark.textContent||''),mark);p.normalize()}mark=null;}
   function highlight(){
     clearHighlight();if(!settings.highlight)return;
     const it=state.queue[state.index];if(!it?.body?.isConnected||!it.text)return;
     try{
-      if(it.range&&it.range.startContainer?.isConnected&&window.CSS?.highlights&&window.Highlight){
-        CSS.highlights.set(HNAME,new Highlight(it.range.cloneRange()));return;
+      let range=null;
+      if(it.range&&it.range.startContainer?.isConnected) range=it.range.cloneRange();
+      if(!range){
+        const walker=document.createTreeWalker(it.body,NodeFilter.SHOW_TEXT,{acceptNode(n){
+          if(!n.nodeValue?.length||excludedContent(n.parentElement))return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }});
+        const chars=[];let n;while(n=walker.nextNode())for(let i=0;i<n.nodeValue.length;i++)chars.push({ch:n.nodeValue[i],node:n,offset:i});
+        const hay=chars.map(x=>x.ch).join(''),p=hay.indexOf(it.text);if(p<0)return;
+        const first=chars[p],last=chars[p+it.text.length-1];if(!first||!last)return;
+        range=document.createRange();range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1);
       }
-      const walker=document.createTreeWalker(it.body,NodeFilter.SHOW_TEXT,{acceptNode(n){
-        if(!n.nodeValue?.length||excludedContent(n.parentElement))return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }});
-      const chars=[];let n;while(n=walker.nextNode())for(let i=0;i<n.nodeValue.length;i++)chars.push({ch:n.nodeValue[i],node:n,offset:i});
-      const hay=chars.map(x=>x.ch).join(''),p=hay.indexOf(it.text);if(p<0)return;
-      const first=chars[p],last=chars[p+it.text.length-1];if(!first||!last)return;
-      const r=document.createRange();r.setStart(first.node,first.offset);r.setEnd(last.node,last.offset+1);
-      if(window.CSS?.highlights&&window.Highlight)CSS.highlights.set(HNAME,new Highlight(r));
-      else{const markEl=document.createElement('span');markEl.style.cssText='color:#d85a55!important;background:transparent!important;';r.surroundContents(markEl);mark=markEl;}
+      if(window.CSS?.highlights&&window.Highlight){
+        CSS.highlights.set(HNAME,new Highlight(range));
+      }else{
+        drawVisualRects(range);
+      }
     }catch(e){console.debug('[阅读助手] 高亮失败',e)}
   }
   function resize(){for(const el of [state.ui.bubble,state.ui.caption]){if(!el)return;const r=el.getBoundingClientRect();Object.assign(el.style,{left:Math.max(4,Math.min(r.left,innerWidth-r.width-4))+'px',top:Math.max(4,Math.min(r.top,innerHeight-r.height-4))+'px',right:'auto',bottom:'auto'});}}
   function onDoubleClick(e){if(e.target.closest('#'+ID))return;const body=e.target.closest('.mes_text');if(!body)return;e.preventDefault();e.stopPropagation();readParagraphFromElement(e.target,e.clientX,e.clientY);}
   function visibility(){if(document.hidden&&state.playing&&!state.paused)status('页面已切到后台 · 播放状态由浏览器决定');}
   function destroy(){if(state.destroyed)return;state.destroyed=true;state.generation++;try{synth?.cancel()}catch{}clearHighlight();window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibility);document.removeEventListener('dblclick',onDoubleClick,true);document.getElementById(ID)?.remove();document.getElementById(STYLE_ID)?.remove();try{window.CSS?.highlights?.delete(HNAME)}catch{}}
-  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'15.4'};console.info('[阅读助手] v15.4 主页面扩展已初始化');}
+  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'15.5'};console.info('[阅读助手] v15.5 主页面扩展已初始化');}
   init();
 })();
