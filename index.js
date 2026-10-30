@@ -1,4 +1,4 @@
-// 酒馆阅读助手 v15.5 - 全角空格自然段与稳定高亮
+// 酒馆阅读助手 v16.0 - 连续阅读与自定义主题
 // 作为 SillyTavern/TauriTavern UI 扩展运行，不是酒馆助手隔离全局脚本。
 (() => {
   'use strict';
@@ -8,7 +8,7 @@
   if (window.__mimoReaderV15?.destroy) window.__mimoReaderV15.destroy();
 
   const defaults = { speed: 1, pitch: 1, volume: 1, subtitles: true, highlight: true,
-    autoScroll: false, bubbleX: null, bubbleY: '22%', subtitleX: null, subtitleY: '78%' };
+    autoScroll: false, theme: 'liquid', highlightColor: '#d9ad55', bubbleX: null, bubbleY: '22%', subtitleX: null, subtitleY: '78%' };
   let settings;
   try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
   catch { settings = { ...defaults }; }
@@ -24,12 +24,12 @@
   };
   const icon = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[n] || ''}</svg>`;
   const css = `
-#${ID}{--bg:rgba(19,20,31,.94);--card:rgba(255,255,255,.065);--line:rgba(255,255,255,.14);--txt:#f3f0ff;--muted:#aaa8bf;--orange:#ffad70;--purple:#a78bfa;color:var(--txt);font:14px/1.5 system-ui,-apple-system,sans-serif;color-scheme:dark}
+#${ID}{--bg:rgba(19,20,31,.94);--card:rgba(255,255,255,.065);--line:rgba(255,255,255,.14);--txt:#f3f0ff;--muted:#aaa8bf;--orange:#ffad70;--purple:#a78bfa;--hl:#d9ad55;color:var(--txt);font:14px/1.5 system-ui,-apple-system,sans-serif;color-scheme:dark}
 #${ID} *{box-sizing:border-box}#${ID} button,#${ID} input{font:inherit;color:inherit}
 #${ID} .glass{background:var(--bg);border:1px solid var(--line);box-shadow:0 18px 60px #0005,inset 0 1px #ffffff0d;backdrop-filter:blur(24px) saturate(145%);-webkit-backdrop-filter:blur(24px) saturate(145%)}
 #${ID} .bubble{position:fixed;z-index:2147483000;width:58px;height:58px;border-radius:22px;display:grid;place-items:center;border:1px solid #ffffff38;background:linear-gradient(145deg,#c4a6ff,#8967ee 55%,#6d5bd0);box-shadow:0 8px 28px #785ce159;cursor:grab;user-select:none;touch-action:none}
 #${ID} .bubble svg{width:27px;height:27px}#${ID} .bubble.active:after{content:"";position:absolute;inset:-5px;border:1px solid #a78bfa77;border-radius:26px;animation:mimoPulse 2.1s ease-out infinite;pointer-events:none}
-#${ID} .panel{position:fixed;z-index:2147482999;width:min(360px,calc(100vw - 24px));height:410px;overflow:hidden;border-radius:24px;padding:18px;transform:translateY(8px) scale(.98);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s,transform .2s,visibility .2s}
+#${ID} .panel{position:fixed;z-index:2147482999;width:min(360px,calc(100vw - 24px));height:min(500px,calc(100dvh - 24px));overflow-y:auto;overscroll-behavior:contain;border-radius:24px;padding:18px;transform:translateY(8px) scale(.98);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s,transform .2s,visibility .2s}
 #${ID} .panel.open{transform:none;opacity:1;visibility:visible;pointer-events:auto}
 #${ID} .top,#${ID} .row{display:flex;align-items:center;justify-content:space-between;gap:10px}#${ID} .top{margin-bottom:16px}
 #${ID} .brand{display:flex;align-items:center;gap:10px}.logo{width:36px;height:36px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,#b99bff,#8062dc)}
@@ -47,7 +47,22 @@
 #${ID} .status{color:var(--muted);font-size:11px;margin-top:12px;min-height:17px}
 #${ID} .caption{position:fixed;z-index:2147482998;width:min(440px,calc(100vw - 24px));min-height:88px;max-height:150px;overflow:hidden;padding:14px 17px;border-radius:18px;cursor:grab;touch-action:none;user-select:none}
 #${ID} .caption[hidden]{display:none}#${ID} .captionhead{color:var(--muted);font-size:11px;margin-bottom:6px}#${ID} .captiontext{font-size:15px;line-height:1.75;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-::highlight(mimoReaderV15){color:#d85a55;background:transparent;text-decoration:none}
+::highlight(mimoReaderV15){color:var(--hl,#d9ad55);background:color-mix(in srgb,var(--hl,#d9ad55) 22%,transparent);text-decoration:none}
+#${ID} .customize{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}
+#${ID} .customize label{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:11px;color:var(--muted)}
+#${ID} select,#${ID} input[type=color]{max-width:112px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--txt);padding:4px}
+#${ID} input[type=color]{width:38px;height:28px;padding:2px}
+#${ID}[data-theme="rainbow"]{--bg:rgba(16,18,35,.91);--line:rgba(255,255,255,.24);--purple:#59d9ff;--orange:#ff78c8}
+#${ID}[data-theme="rainbow"] .bubble,#${ID}[data-theme="rainbow"] .logo{background:linear-gradient(135deg,#ff5da2,#9b70ff,#43d9ff,#8bffb0);background-size:220% 220%;animation:mimoRainbow 5s ease infinite}
+#${ID}[data-theme="rainbow"] .panel{border-color:#c78cff88;box-shadow:0 18px 60px #0008,0 0 26px #a56bff33,inset 0 1px #ffffff22}
+#${ID}[data-theme="warm"]{--bg:rgba(43,32,25,.96);--card:rgba(255,235,205,.09);--line:rgba(255,220,180,.2);--txt:#fff0dc;--muted:#cbb69b;--purple:#c99a63;--orange:#e4bd83}
+#${ID}[data-theme="warm"] .bubble,#${ID}[data-theme="warm"] .logo{background:linear-gradient(145deg,#f0d29a,#a96f3c)}
+#${ID}[data-theme="midnight"]{--bg:rgba(9,13,29,.97);--card:rgba(115,145,255,.09);--line:rgba(135,160,255,.22);--txt:#edf2ff;--muted:#9daed4;--purple:#789cff;--orange:#9edbff}
+#${ID}[data-theme="midnight"] .bubble,#${ID}[data-theme="midnight"] .logo{background:linear-gradient(145deg,#9bc5ff,#536bcb)}
+#${ID}[data-theme="rainbow"] .bubble{border-radius:50%}
+#${ID}[data-theme="warm"] .bubble{border-radius:18px}
+#${ID}[data-theme="midnight"] .bubble{border-radius:50%}
+@keyframes mimoRainbow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
 @keyframes mimoPulse{0%{transform:scale(.97);opacity:.7}100%{transform:scale(1.2);opacity:0}}
 `;
   function addStyle(){document.getElementById(STYLE_ID)?.remove();const s=document.createElement('style');s.id=STYLE_ID;s.textContent=css;document.head.appendChild(s);}
@@ -56,21 +71,27 @@
     const root=document.createElement('div');root.id=ID;
     root.innerHTML=`<button class="bubble" aria-label="打开阅读助手">${icon('headphones')}</button>
     <section class="panel glass" aria-label="阅读助手控制面板">
-      <div class="top"><div class="brand"><div class="logo">${icon('headphones')}</div><div><div class="title">阅读助手</div><div class="muted">IMMERSIVE READER · V15.5</div></div></div><button class="iconbtn close" aria-label="关闭">${icon('close')}</button></div>
+      <div class="top"><div class="brand"><div class="logo">${icon('headphones')}</div><div><div class="title">阅读助手</div><div class="muted">IMMERSIVE READER · V16.0</div></div></div><button class="iconbtn close" aria-label="关闭">${icon('close')}</button></div>
       <div class="now"><div class="nowlabel">正在朗读</div><div class="nowtext">点击播放，开始阅读当前 AI 回复。</div></div>
       <div class="controls"><button class="control prev" title="上一句">${icon('prev')}</button><button class="control primary play" title="播放">${icon('play')}</button><button class="control next" title="下一句">${icon('next')}</button><button class="control stop" title="停止">${icon('stop')}</button></div>
       <div class="progress"><div class="track"><div class="fill"></div></div><div class="progressText"><span class="count">未开始</span><span class="speedLabel">语速 1.0×</span></div></div>
       <div class="setting"><label><span>朗读速度</span><input class="speed" type="range" min=".6" max="5" step=".1"></label>
-      <div class="toggles"><button class="chip sub">字幕：开</button><button class="chip high">高亮：开</button><button class="chip scroll">跟随：开</button></div></div>
+      <div class="toggles"><button class="chip sub">字幕：开</button><button class="chip high">高亮：开</button><button class="chip scroll">跟随：关</button></div><div class="customize"><label><span>界面主题</span><select class="theme"><option value="liquid">液态玻璃</option><option value="rainbow">炫彩流光</option><option value="warm">暖棕阅读</option><option value="midnight">深蓝夜间</option></select></label><label><span>高亮颜色</span><input class="hlcolor" type="color"></label></div></div>
       <div class="status" role="status">就绪 · 等待开始</div>
     </section>
     <div class="caption glass"><div class="captionhead">正在跟读</div><div class="captiontext">字幕将在朗读时显示</div></div>`;
     document.body.appendChild(root);
     const $=s=>root.querySelector(s);
-    state.ui={root,bubble:$('.bubble'),panel:$('.panel'),close:$('.close'),play:$('.play'),prev:$('.prev'),next:$('.next'),stop:$('.stop'),now:$('.nowtext'),fill:$('.fill'),count:$('.count'),speed:$('.speed'),speedLabel:$('.speedLabel'),status:$('.status'),caption:$('.caption'),captionText:$('.captiontext'),sub:$('.sub'),high:$('.high'),scroll:$('.scroll')};
+    state.ui={root,bubble:$('.bubble'),panel:$('.panel'),close:$('.close'),play:$('.play'),prev:$('.prev'),next:$('.next'),stop:$('.stop'),now:$('.nowtext'),fill:$('.fill'),count:$('.count'),speed:$('.speed'),speedLabel:$('.speedLabel'),status:$('.status'),caption:$('.caption'),captionText:$('.captiontext'),sub:$('.sub'),high:$('.high'),scroll:$('.scroll'),theme:$('.theme'),hlcolor:$('.hlcolor')};
     state.ui.speed.value=String(settings.speed); restorePositions(); updateToggles(); bindUI();
   }
   const status=t=>{if(state.ui.status)state.ui.status.textContent=t;};
+  function applyAppearance(){
+    const u=state.ui;if(!u.root)return;
+    u.root.dataset.theme=settings.theme||'liquid';
+    u.root.style.setProperty('--hl',settings.highlightColor||'#d9ad55');
+    if(u.hlcolor)u.hlcolor.value=settings.highlightColor||'#d9ad55';
+  }
   function updateToggles(){const u=state.ui;u.sub.textContent=`字幕：${settings.subtitles?'开':'关'}`;u.high.textContent=`高亮：${settings.highlight?'开':'关'}`;u.scroll.textContent=`跟随：${settings.autoScroll?'开':'关'}`;u.sub.classList.toggle('on',settings.subtitles);u.high.classList.toggle('on',settings.highlight);u.scroll.classList.toggle('on',settings.autoScroll);u.caption.hidden=!settings.subtitles;u.speedLabel.textContent=`语速 ${Number(settings.speed).toFixed(1)}×`;}
   function bindUI(){const u=state.ui;
     u.bubble.addEventListener('click',()=>{u.panel.classList.toggle('open');if(u.panel.classList.contains('open'))positionPanel();});
@@ -79,9 +100,12 @@
     u.sub.onclick=()=>{settings.subtitles=!settings.subtitles;save();updateToggles();};
     u.high.onclick=()=>{settings.highlight=!settings.highlight;clearHighlight();save();updateToggles();if(settings.highlight)highlight();};
     u.scroll.onclick=()=>{settings.autoScroll=!settings.autoScroll;save();updateToggles();};
+    u.theme.value=settings.theme||'liquid';u.hlcolor.value=settings.highlightColor||'#d9ad55';applyAppearance();
+    u.theme.addEventListener('change',()=>{settings.theme=u.theme.value;save();applyAppearance();});
+    u.hlcolor.addEventListener('input',()=>{settings.highlightColor=u.hlcolor.value;save();applyAppearance();});
     draggable(u.bubble,'bubble');draggable(u.caption,'subtitle');
   }
-  function positionPanel(){const b=state.ui.bubble.getBoundingClientRect(),w=Math.min(360,innerWidth-24),h=Math.min(410,innerHeight-24);let x=b.left+b.width-w,y=b.bottom+10;if(y+h>innerHeight)y=b.top-h-10;x=Math.max(12,Math.min(x,innerWidth-w-12));y=Math.max(12,Math.min(y,innerHeight-h-12));Object.assign(state.ui.panel.style,{left:x+'px',top:y+'px',right:'auto',bottom:'auto'});}
+  function positionPanel(){const b=state.ui.bubble.getBoundingClientRect(),w=Math.min(360,innerWidth-24),h=Math.min(500,innerHeight-24);let x=b.left+b.width-w,y=b.bottom+10;if(y+h>innerHeight)y=b.top-h-10;x=Math.max(12,Math.min(x,innerWidth-w-12));y=Math.max(12,Math.min(y,innerHeight-h-12));Object.assign(state.ui.panel.style,{left:x+'px',top:y+'px',right:'auto',bottom:'auto'});}
   function draggable(el,kind){let sx=0,sy=0,ox=0,oy=0,moved=false;
     el.addEventListener('pointerdown',e=>{if(e.button!==undefined&&e.button!==0)return;if(e.target.closest('button')&&kind!=='bubble')return;const r=el.getBoundingClientRect();sx=e.clientX;sy=e.clientY;ox=r.left;oy=r.top;moved=false;try{el.setPointerCapture(e.pointerId)}catch{}el.dataset.drag='1';});
     el.addEventListener('pointermove',e=>{if(el.dataset.drag!=='1')return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;if(!moved)return;const r=el.getBoundingClientRect();Object.assign(el.style,{left:Math.max(4,Math.min(ox+dx,innerWidth-r.width-4))+'px',top:Math.max(4,Math.min(oy+dy,innerHeight-r.height-4))+'px',right:'auto',bottom:'auto'});});
@@ -135,40 +159,38 @@
     while(chars.length&&chars[chars.length-1]==='\n'){chars.pop();map.pop()}
     return {text:chars.join(''),map};
   }
-  function paragraphAt(flat, clickNode, clickOffset){
-    let clicked=-1;
-    for(let i=0;i<flat.map.length;i++){
-      const m=flat.map[i];
-      if(m&&m.node===clickNode&&clickOffset>=m.offset&&clickOffset<=m.offset+1){clicked=i;break}
-    }
-    if(clicked<0)return null;
-    const text=flat.text;
-    // 段落边界：换行，或段首单个全角空格（　）。
+  function paragraphRanges(flat){
+    const text=flat.text, ranges=[];
+    // TTS阅读器里的自然段以换行、段首全角空格（　）或段首两个半角空格为边界。
     const starts=[0];
     for(let i=0;i<text.length;i++){
-      if(text[i]==='\n' && i+1<text.length) starts.push(i+1);
-      else if(text[i]==='　' && (i===0 || text[i-1]==='\n' || text[i-1]==='　')) starts.push(i);
+      if(text[i]==='\n'&&i+1<text.length)starts.push(i+1);
+      else if(text[i]==='　'&&(i===0||text[i-1]==='\n'||text[i-1]==='　'))starts.push(i);
+      else if(text[i]===' '&&(i===0||text[i-1]==='\n')&&text.slice(i,i+2)==='  ')starts.push(i);
     }
     starts.sort((a,b)=>a-b);
     const unique=starts.filter((v,i)=>i===0||v!==starts[i-1]);
-    let a=0,b=text.length;
     for(let i=0;i<unique.length;i++){
-      const x=unique[i],y=unique[i+1]??text.length;
-      if(clicked>=x&&clicked<y){a=x;b=y;break}
+      let a=unique[i],b=unique[i+1]??text.length;
+      while(a<b&&/[\s　]/.test(text[a]))a++;
+      while(b>a&&/[\s　]/.test(text[b-1]))b--;
+      if(a>=b)continue;
+      let first=null,last=null;
+      for(let j=a;j<b;j++){const m=flat.map[j];if(m){if(!first)first=m;last=m}}
+      if(!first||!last)continue;
+      const range=document.createRange();
+      try{range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1)}catch{continue}
+      const value=text.slice(a,b).replace(/\n/g,' ').replace(/[　 ]{2,}/g,' ').trim();
+      if(value)ranges.push({text:value,range,start:a,end:b});
     }
-    // 高亮和朗读正文不包含段首缩进空格。
-    while(a<b && /[\s　]/.test(text[a])) a++;
-    while(b>a && /[\s　]/.test(text[b-1])) b--;
-    if(a>=b)return null;
-    let first=null,last=null;
-    for(let i=a;i<b;i++){
-      const m=flat.map[i];if(!m)continue;
-      if(!first)first=m;last=m;
-    }
-    if(!first||!last)return null;
-    const range=document.createRange();
-    try{range.setStart(first.node,first.offset);range.setEnd(last.node,last.offset+1)}catch{return null}
-    return {text:text.slice(a,b).replace(/\n/g,' ').replace(/[　 ]{2,}/g,' ').trim(),range};
+    return ranges;
+  }
+  function makeMessageQueue(msg,body,startIndex=0){
+    const flat=flattenBody(body),paras=paragraphRanges(flat),out=[];
+    paras.slice(startIndex).forEach(p=>{
+      splitSentences(p.text).forEach(s=>out.push({text:s,message:msg,body,source:p.text,range:p.range}));
+    });
+    return {out,paras};
   }
   function readParagraphFromElement(target,x,y){
     const body=target?.closest('.mes_text');
@@ -179,14 +201,25 @@
     try{caret=document.caretRangeFromPoint?.(x,y)||null;}catch{}
     if(!caret){try{const p=document.caretPositionFromPoint?.(x,y);if(p){caret=document.createRange();caret.setStart(p.offsetNode,p.offset);caret.collapse(true)}}catch{}}
     if(!caret||!body.contains(caret.startContainer))return false;
-    const flat=flattenBody(body);
-    const paragraph=paragraphAt(flat,caret.startContainer,caret.startOffset);
-    if(!paragraph?.text)return false;
-    const parts=splitSentences(paragraph.text);
-    if(!parts.length)return false;
-    state.queue=parts.map(s=>({text:s,message:msg,body,source:paragraph.text,range:paragraph.range}));
-    state.index=0;state.playing=true;state.paused=false;state.generation++;
-    status('已定位到所点自然段');render();highlight();speak(state.generation);buttonState();
+    const flat=flattenBody(body),paras=paragraphRanges(flat);
+    let clicked=-1;
+    for(let i=0;i<flat.map.length;i++){const m=flat.map[i];if(m&&m.node===caret.startContainer&&caret.startOffset>=m.offset&&caret.startOffset<=m.offset+1){clicked=i;break}}
+    if(clicked<0)return false;
+    const startIndex=paras.findIndex(p=>clicked>=p.start&&clicked<p.end);
+    if(startIndex<0)return false;
+    const first=makeMessageQueue(msg,body,startIndex).out;
+    const all=[...first];
+    // 接着读后续 AI 消息，直到当前聊天里没有更多可读正文。
+    let passed=false;
+    document.querySelectorAll('.mes').forEach(nextMsg=>{
+      if(nextMsg===msg){passed=true;return}
+      if(!passed||!visible(nextMsg)||nextMsg.classList.contains('mes_user')||nextMsg.classList.contains('mes_system')||nextMsg.matches('[is_user="true"],[data-is-user="true"]'))return;
+      const nextBody=nextMsg.querySelector('.mes_text');if(!nextBody)return;
+      const built=makeMessageQueue(nextMsg,nextBody,0).out;all.push(...built);
+    });
+    if(!all.length)return false;
+    state.queue=all;state.index=0;state.playing=true;state.paused=false;state.generation++;
+    status('已定位 · 将从此自然段连续读到当前聊天末尾');render();highlight();speak(state.generation);buttonState();
     return true;
   }
   function playPause(){if(!synth||!Utterance)return status('当前环境不支持浏览器语音合成');if(state.playing&&!state.paused)return pause();if(state.paused)return resume();state.queue=buildQueue();state.index=topIndex(state.queue);if(!state.queue.length)return status('没有找到可朗读的 AI 正文');state.playing=true;state.paused=false;state.generation++;speak(state.generation);buttonState();}
@@ -241,6 +274,6 @@
   function onDoubleClick(e){if(e.target.closest('#'+ID))return;const body=e.target.closest('.mes_text');if(!body)return;e.preventDefault();e.stopPropagation();readParagraphFromElement(e.target,e.clientX,e.clientY);}
   function visibility(){if(document.hidden&&state.playing&&!state.paused)status('页面已切到后台 · 播放状态由浏览器决定');}
   function destroy(){if(state.destroyed)return;state.destroyed=true;state.generation++;try{synth?.cancel()}catch{}clearHighlight();window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibility);document.removeEventListener('dblclick',onDoubleClick,true);document.getElementById(ID)?.remove();document.getElementById(STYLE_ID)?.remove();try{window.CSS?.highlights?.delete(HNAME)}catch{}}
-  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'15.5'};console.info('[阅读助手] v15.5 主页面扩展已初始化');}
+  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'16.0'};console.info('[阅读助手] v16.0 主页面扩展已初始化');}
   init();
 })();
