@@ -120,8 +120,56 @@
   }
   function setPos(el,x,y,side){if(x){el.style.left=x;el.style.right='auto'}else{el.style.left=side==='left'?'auto':'12px';el.style.right=side==='left'?'12px':'auto'}el.style.top=y||'22%';}
   function restorePositions(){setPos(state.ui.bubble,settings.bubbleX,settings.bubbleY,'left');setPos(state.ui.caption,settings.subtitleX,settings.subtitleY,'left');}
-  function visible(el){if(!(el instanceof Element)||el.closest('script,style,textarea,input,[hidden],[aria-hidden="true"],.mes_reasoning,.reasoning,.thoughts,.thinking,.mes_thoughts,.extraMesButtons,.mes_buttons,.mes_edit_buttons'))return false;const s=getComputedStyle(el);return s.display!=='none'&&s.visibility!=='hidden'&&+s.opacity!==0;}
-  function buildQueue(){const out=[];document.querySelectorAll('.mes').forEach(msg=>{if(!visible(msg)||msg.classList.contains('mes_user')||msg.classList.contains('mes_system')||msg.matches('[is_user="true"],[data-is-user="true"]'))return;const body=msg.querySelector('.mes_text');if(!body)return;const clone=body.cloneNode(true);clone.querySelectorAll('script,style,textarea,input,[hidden],[aria-hidden="true"],.mes_reasoning,.reasoning,.thoughts,.thinking,.mes_thoughts,.extraMesButtons,.mes_buttons,.mes_edit_buttons').forEach(n=>n.remove());const raw=(clone.innerText||clone.textContent||'').replace(/\r\n?/g,'\n').replace(/\n{3,}/g,'\n\n').trim();const text=clean(raw);if(!text)return;const sentences=splitSentences(text);sentences.forEach(s=>{s=s.trim();if(s)out.push({text:s,message:msg,body,source:raw});});});return out;}
+  // 不同酒馆主题/版本会给“思考过程”使用不同的 DOM 类名。
+  // 仅移除思考子区域，不排除整条 AI 消息，确保正式正文仍可朗读。
+  const THINKING_SELECTOR = [
+    '.mes_reasoning','.mes_reasoning_content','.mes_reasoning_header',
+    '.mes_thoughts','.mes_thoughts_content','.reasoning','.reasoning-content',
+    '.reasoning_content','.reasoning-block','.reasoning-container',
+    '.thinking','.thinking-content','.thoughts','.thought','.thought-content',
+    '[data-reasoning]','[data-thinking]','[data-thought]',
+    '[class*="reasoning" i]','[id*="reasoning" i]',
+    '[class*="thinking" i]','[id*="thinking" i]',
+    '[class*="thought" i]','[id*="thought" i]'
+  ].join(',');
+  const UI_SKIP_SELECTOR = 'script,style,textarea,input,[hidden],[aria-hidden="true"],.extraMesButtons,.mes_buttons,.mes_edit_buttons';
+  function isThinkingElement(el){
+    if(!(el instanceof Element))return false;
+    if(el.matches(THINKING_SELECTOR))return true;
+    if(el.tagName==='DETAILS'){
+      const summary=el.querySelector(':scope > summary');
+      if(summary && /思考|推理|reasoning|thinking|thought process/i.test(summary.textContent||''))return true;
+    }
+    if(/^(BUTTON|SUMMARY)$/.test(el.tagName) && /思考了|思考过程|推理过程|thinking|reasoning/i.test(el.textContent||'')){
+      const container=el.closest('details,[class*="reason" i],[class*="think" i],[class*="thought" i]');
+      if(container && container!==el)return true;
+    }
+    return false;
+  }
+  function visible(el){
+    if(!(el instanceof Element)||el.closest(UI_SKIP_SELECTOR+','+THINKING_SELECTOR))return false;
+    const s=getComputedStyle(el);
+    return s.display!=='none'&&s.visibility!=='hidden'&&s.visibility!=='collapse'&&+s.opacity!==0;
+  }
+  function stripNonReadable(root){
+    root.querySelectorAll(UI_SKIP_SELECTOR+','+THINKING_SELECTOR).forEach(n=>n.remove());
+    root.querySelectorAll('details').forEach(d=>{
+      const summary=d.querySelector(':scope > summary');
+      if(summary && /思考|推理|reasoning|thinking|thought process/i.test(summary.textContent||''))d.remove();
+    });
+  }
+  function buildQueue(){
+    const out=[];
+    document.querySelectorAll('.mes').forEach(msg=>{
+      if(!visible(msg)||msg.classList.contains('mes_user')||msg.classList.contains('mes_system')||msg.matches('[is_user="true"],[data-is-user="true"]'))return;
+      const body=msg.querySelector('.mes_text');if(!body)return;
+      const clone=body.cloneNode(true);stripNonReadable(clone);
+      const raw=(clone.innerText||clone.textContent||'').replace(/\r\n?/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+      const text=clean(raw);if(!text)return;
+      splitSentences(text).forEach(s=>{s=s.trim();if(s)out.push({text:s,message:msg,body,source:raw});});
+    });
+    return out;
+  }
   function splitSentences(text){
     // 统一按标点切分；不把长段落拆成随机长短的片段。
     const out=[];
@@ -134,7 +182,7 @@
   }
   function clean(t){return String(t||'').replace(/```[\s\S]*?```/g,' ').replace(/!\[[^\]]*]\([^)]*\)/g,' ').replace(/\[([^\]]+)]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').replace(/[ \t]{2,}/g,' ').trim();}
   function topIndex(q){const c=innerHeight*.45;let best=0,d=Infinity;q.forEach((it,i)=>{const r=it.message.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight)return;const n=Math.abs(r.top-c);if(n<d){d=n;best=i}});return best;}
-  const SKIP_READER = 'script,style,template,noscript,textarea,input,select,option,button,iframe,svg,canvas,video,audio,pre,code,[hidden],[aria-hidden="true"],[inert],.mes_reasoning,.reasoning,.thoughts,.thinking,.mes_thoughts,.extraMesButtons,.mes_buttons,.mes_edit_buttons';
+  const SKIP_READER = 'script,style,template,noscript,textarea,input,select,option,button,iframe,svg,canvas,video,audio,pre,code,[hidden],[aria-hidden="true"],[inert],.mes_reasoning,.mes_reasoning_content,.mes_reasoning_header,.reasoning,.reasoning-content,.reasoning_content,.reasoning-block,.reasoning-container,.thoughts,.thought,.thought-content,.thinking,.thinking-content,.mes_thoughts,.mes_thoughts_content,[data-reasoning],[data-thinking],[data-thought],[class*="reasoning" i],[id*="reasoning" i],[class*="thinking" i],[id*="thinking" i],[class*="thought" i],[id*="thought" i],.extraMesButtons,.mes_buttons,.mes_edit_buttons';
   function excludedContent(el){
     if(!(el instanceof Element))return true;
     if(el.closest('#'+ID+','+SKIP_READER))return true;
@@ -154,7 +202,7 @@
       }
       if(node.nodeType!==Node.ELEMENT_NODE)return;
       const el=node;
-      if(el!==body&&excludedContent(el))return;
+      if(el!==body&&(isThinkingElement(el)||excludedContent(el)))return;
       const block=el!==body&&(/^(P|DIV|SECTION|ARTICLE|BLOCKQUOTE|LI|H[1-6]|UL|OL)$/.test(el.tagName));
       if(block)sep();
       if(el.tagName==='BR'){sep();return;}
