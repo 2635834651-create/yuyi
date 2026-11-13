@@ -1,4 +1,4 @@
-// 酒馆阅读助手 v16.1 - 启动按钮与文字高亮自定义
+// 酒馆阅读助手 v16.3 - 启动按钮与文字高亮自定义
 // 作为 SillyTavern/TauriTavern UI 扩展运行，不是酒馆助手隔离全局脚本。
 (() => {
   'use strict';
@@ -128,9 +128,8 @@
     '.reasoning_content','.reasoning-block','.reasoning-container',
     '.thinking','.thinking-content','.thoughts','.thought','.thought-content',
     '[data-reasoning]','[data-thinking]','[data-thought]',
-    '[class*="reasoning" i]','[id*="reasoning" i]',
-    '[class*="thinking" i]','[id*="thinking" i]',
-    '[class*="thought" i]','[id*="thought" i]'
+    '.mes_reasoning','.mes_reasoning_content','.mes_thoughts','.mes_thoughts_content',
+    '.reasoning-content','.reasoning_content','.thinking-content','.thought-content'
   ].join(',');
   const UI_SKIP_SELECTOR = 'script,style,textarea,input,[hidden],[aria-hidden="true"],.extraMesButtons,.mes_buttons,.mes_edit_buttons';
   function isThinkingElement(el){
@@ -147,7 +146,8 @@
     return false;
   }
   function visible(el){
-    if(!(el instanceof Element)||el.closest(UI_SKIP_SELECTOR+','+THINKING_SELECTOR))return false;
+    // 这里只判断消息自身是否可见；绝不能因为消息内部有思考子区就把整条消息判为不可见。
+    if(!(el instanceof Element)||el.closest('#'+ID))return false;
     const s=getComputedStyle(el);
     return s.display!=='none'&&s.visibility!=='hidden'&&s.visibility!=='collapse'&&+s.opacity!==0;
   }
@@ -182,10 +182,14 @@
   }
   function clean(t){return String(t||'').replace(/```[\s\S]*?```/g,' ').replace(/!\[[^\]]*]\([^)]*\)/g,' ').replace(/\[([^\]]+)]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').replace(/[ \t]{2,}/g,' ').trim();}
   function topIndex(q){const c=innerHeight*.45;let best=0,d=Infinity;q.forEach((it,i)=>{const r=it.message.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight)return;const n=Math.abs(r.top-c);if(n<d){d=n;best=i}});return best;}
-  const SKIP_READER = 'script,style,template,noscript,textarea,input,select,option,button,iframe,svg,canvas,video,audio,pre,code,[hidden],[aria-hidden="true"],[inert],.mes_reasoning,.mes_reasoning_content,.mes_reasoning_header,.reasoning,.reasoning-content,.reasoning_content,.reasoning-block,.reasoning-container,.thoughts,.thought,.thought-content,.thinking,.thinking-content,.mes_thoughts,.mes_thoughts_content,[data-reasoning],[data-thinking],[data-thought],[class*="reasoning" i],[id*="reasoning" i],[class*="thinking" i],[id*="thinking" i],[class*="thought" i],[id*="thought" i],.extraMesButtons,.mes_buttons,.mes_edit_buttons';
+  const SKIP_READER = 'script,style,template,noscript,textarea,input,select,option,button,iframe,svg,canvas,video,audio,pre,code,[hidden],[aria-hidden="true"],[inert],.mes_reasoning,.mes_reasoning_content,.mes_reasoning_header,.reasoning,.reasoning-content,.reasoning_content,.reasoning-block,.reasoning-container,.thoughts,.thought,.thought-content,.thinking,.thinking-content,.mes_thoughts,.mes_thoughts_content,[data-reasoning],[data-thinking],[data-thought],.reasoning-content,.reasoning_content,.thinking-content,.thought-content,.extraMesButtons,.mes_buttons,.mes_edit_buttons';
   function excludedContent(el){
     if(!(el instanceof Element))return true;
-    if(el.closest('#'+ID+','+SKIP_READER))return true;
+    if(el.closest('#'+ID))return true;
+    // 过滤只在 .mes_text 正文容器内部生效，避免外层包装类名误伤正文。
+    const body=el.closest('.mes_text');
+    const blocker=el.closest(SKIP_READER);
+    if(blocker && (!body || body.contains(blocker)))return true;
     const tag=el.tagName.toLowerCase();
     if(tag.includes('-') || el.matches('[contenteditable="true"],[data-html],[data-raw-html],.html,.html-block,.rendered-html,.mes_html,.code-block,.language-html,.language-javascript'))return true;
     const s=getComputedStyle(el);
@@ -246,15 +250,40 @@
     });
     return {out,paras};
   }
+  function findMessageBody(target){
+    if(!(target instanceof Element))return null;
+    const msg=target.closest('.mes');
+    if(!msg)return null;
+    return target.closest('.mes_text') ||
+      msg.querySelector('.mes_text,.message-text,.mes-content,.message-content,[data-message-content]') ||
+      null;
+  }
+  function rangeAtPointInBody(body,target,x,y){
+    let r=null;
+    try{r=document.caretRangeFromPoint?.(x,y)||null}catch{}
+    if(!r){try{const p=document.caretPositionFromPoint?.(x,y);if(p){r=document.createRange();r.setStart(p.offsetNode,p.offset);r.collapse(true)}}catch{}}
+    if(r&&body.contains(r.startContainer))return r;
+    // WebView 某些版本在折叠思考区附近拿不到 caretRangeFromPoint；
+    // 回退到双击目标内可见文字的首个文本节点，避免整个双击操作静默失败。
+    const walker=document.createTreeWalker(target,NodeFilter.SHOW_TEXT,{
+      acceptNode(n){
+        if(!n.nodeValue||!n.nodeValue.trim())return NodeFilter.FILTER_REJECT;
+        const p=n.parentElement;
+        if(!p||!body.contains(p)||isThinkingElement(p)||excludedContent(p))return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const n=walker.nextNode();
+    if(n){r=document.createRange();r.setStart(n,0);r.collapse(true);return r}
+    return null;
+  }
   function readParagraphFromElement(target,x,y){
-    const body=target?.closest('.mes_text');
+    const body=findMessageBody(target);
     if(!body)return false;
     const msg=body.closest('.mes');
     if(!msg||!visible(msg)||msg.classList.contains('mes_user')||msg.classList.contains('mes_system')||msg.matches('[is_user="true"],[data-is-user="true"]'))return false;
-    let caret=null;
-    try{caret=document.caretRangeFromPoint?.(x,y)||null;}catch{}
-    if(!caret){try{const p=document.caretPositionFromPoint?.(x,y);if(p){caret=document.createRange();caret.setStart(p.offsetNode,p.offset);caret.collapse(true)}}catch{}}
-    if(!caret||!body.contains(caret.startContainer))return false;
+    const caret=rangeAtPointInBody(body,target,x,y);
+    if(!caret||!body.contains(caret.startContainer)){status('没有定位到正文文字，请双击正文文字本身');return false;}
     const flat=flattenBody(body),paras=paragraphRanges(flat);
     let clicked=-1;
     for(let i=0;i<flat.map.length;i++){const m=flat.map[i];if(m&&m.node===caret.startContainer&&caret.startOffset>=m.offset&&caret.startOffset<=m.offset+1){clicked=i;break}}
@@ -328,9 +357,15 @@
     }catch(e){console.debug('[阅读助手] 高亮失败',e)}
   }
   function resize(){for(const el of [state.ui.bubble,state.ui.caption]){if(!el)return;const r=el.getBoundingClientRect();Object.assign(el.style,{left:Math.max(4,Math.min(r.left,innerWidth-r.width-4))+'px',top:Math.max(4,Math.min(r.top,innerHeight-r.height-4))+'px',right:'auto',bottom:'auto'});}}
-  function onDoubleClick(e){if(e.target.closest('#'+ID))return;const body=e.target.closest('.mes_text');if(!body)return;e.preventDefault();e.stopPropagation();readParagraphFromElement(e.target,e.clientX,e.clientY);}
+  function onDoubleClick(e){
+    if(!(e.target instanceof Element)||e.target.closest('#'+ID))return;
+    const body=findMessageBody(e.target);if(!body)return;
+    e.preventDefault();e.stopPropagation();
+    const ok=readParagraphFromElement(e.target,e.clientX,e.clientY);
+    if(!ok)status('已识别 AI 消息，但没找到可读正文；请双击正文段落文字');
+  }
   function visibility(){if(document.hidden&&state.playing&&!state.paused)status('页面已切到后台 · 播放状态由浏览器决定');}
   function destroy(){if(state.destroyed)return;state.destroyed=true;state.generation++;try{synth?.cancel()}catch{}clearHighlight();window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibility);document.removeEventListener('dblclick',onDoubleClick,true);document.getElementById(ID)?.remove();document.getElementById(STYLE_ID)?.remove();try{window.CSS?.highlights?.delete(HNAME)}catch{}}
-  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'16.1'};console.info('[阅读助手] v16.1 主页面扩展已初始化');}
+  function init(){addStyle();createUI();window.addEventListener('resize',resize);document.addEventListener('visibilitychange',visibility);document.addEventListener('dblclick',onDoubleClick,true);window.__mimoReaderV15={destroy,stop,play:playPause,version:'16.3'};console.info('[阅读助手] v16.3 主页面扩展已初始化');}
   init();
 })();
